@@ -30,7 +30,42 @@ pub fn frequency(input: &[&str], worker_count: usize) -> HashMap<char, usize> {
 fn char_frequency(input: &str) -> HashMap<char, usize> {
     let mut freq = HashMap::new();
     for c in input.chars() {
-        *freq.entry(c as char).or_insert(0) += 1;
+        if c.is_numeric() || c.is_ascii_punctuation(){
+            continue;
+        }
+        *freq.entry(c.to_ascii_lowercase()).or_insert(0) += 1;
     }
     freq
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_frequency_1_worker() {
+        let input = vec!["abc"];
+        let expected: HashMap<char, usize> = vec![('a', 1), ('b', 1), ('c', 1)].into_iter().collect();
+        let actual = frequency(&input, 1);
+        assert_eq!(expected, actual);
+
+        let input = vec!["abc", "abc"];
+        let expected: HashMap<char, usize> = vec![('a', 2), ('b', 2), ('c', 2)].into_iter().collect();
+        let actual = frequency(&input, 1);
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_frequency_2_workers() {
+        let input = vec!["abc"; 999];
+        let expected: HashMap<char, usize> = vec![('a', 999), ('b', 999), ('c', 999)].into_iter().collect();
+        let actual = frequency(&input, 2);
+        assert_eq!(expected, actual);
+
+        let input = vec!["abc", "abc"];
+        let expected: HashMap<char, usize> = vec![('a', 2), ('b', 2), ('c', 2)].into_iter().collect();
+        let actual = frequency(&input, 2);
+        assert_eq!(expected, actual);
+    }
+
 }
