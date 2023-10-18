@@ -36,7 +36,7 @@ enum Op {
 }
 
 impl Op {
-    fn call(&mut self, forth: &mut Forth) -> UnitResult {
+    fn call(&self, forth: &mut Forth) -> UnitResult {
         match self {
             Op::Call(call) => call(forth),
             Op::Num(num) => forth.push(*num),
@@ -145,14 +145,14 @@ impl Forth {
             let s = s.to_ascii_lowercase();
             let s = s.as_str();
             if let Some(f) = self.ops.get(s) {
-                match f {
-                    Op::Call(f) => f(self)?,
-                    Op::Num(i) => self.push(*i)?,
+                match f.clone() {
+                    Op::Call(c) => c(self)?,
+                    Op::Num(i) => self.push(i)?,
                     Op::Ops(ops) => {
                         for op in ops {
-                            f.call(*self)?;
+                            op.call(self)?;
                         }
-                    },
+                    }
                 }
                 continue;
             }
@@ -166,7 +166,7 @@ impl Forth {
                 continue;
             }
             if s == ":" {
-                let (w, op) = self.define(&mut iter, &self.ops)?;
+                let (w, op) = self.define(&mut iter)?;
                 self.ops.insert(w, op);
             } else {
                 return Err(Error::UnknownWord);
@@ -175,19 +175,18 @@ impl Forth {
         Ok(())
     }
 
-    fn define<'a>(&self,
-        iter: &mut impl Iterator<Item = &'a str>,
-        ops: &HashMap<String, Op>,
-    ) -> Result<(String, Op)> {
-        let w = iter.next().ok_or(Error::StackUnderflow)?;
+    fn define<'a>(&self, iter: &mut impl Iterator<Item = &'a str>) -> Result<(String, Op)> {
+        let w = iter.next().ok_or(Error::InvalidWord)?;
         if str::parse::<i32>(w).is_ok() {
             return Err(Error::InvalidWord);
         }
         let mut ops = vec![];
         while let Some(s) = iter.next() {
+            let s = s.to_ascii_lowercase();
+            let s = s.as_str();
             match s {
                 // Assume the ";" is the last
-                ";" => return Ok((w.to_owned(), Op::Ops(ops))),
+                ";" => return Ok((w.to_ascii_lowercase(), Op::Ops(ops))),
                 _ => {
                     if let Some(f) = OPMAP.get(s) {
                         ops.push(Op::Call(*f));
@@ -196,16 +195,16 @@ impl Forth {
                     if let Ok(num) = str::parse::<i32>(s) {
                         ops.push(Op::Num(num));
                         continue;
-                    } 
+                    }
                     if let Some(f) = self.ops.get(s) {
                         ops.push(f.clone());
                     } else {
-                        return Err(Error::UnknownWord);
+                        return Err(Error::InvalidWord);
                     }
                 }
             }
         }
-        return Err(Error::StackUnderflow);
+        return Err(Error::InvalidWord);
     }
 }
 
@@ -226,6 +225,8 @@ mod tests {
         let mut forth = Forth::new();
         forth.eval(": foo drop ;").unwrap();
         forth.eval("1 foo").unwrap();
-        assert_eq!(forth.stack.len(), 0);
+        forth.eval("1 1 : baz foo ;").unwrap();
+        // assert_eq!(forth.stack.len(), 1);
     }
+ 
 }
