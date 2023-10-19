@@ -42,7 +42,7 @@ impl Op {
 
 pub struct Forth {
     pub(crate) stack: Vec<Value>,
-    ops: HashMap<String, Op>,
+    ops: Vec<(String, Op)>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -57,7 +57,7 @@ impl Forth {
     pub fn new() -> Forth {
         Self {
             stack: Vec::<Value>::new(),
-            ops: HashMap::new(),
+            ops: Vec::new(),
         }
     }
 
@@ -134,18 +134,22 @@ impl Forth {
         while let Some(s) = iter.next() {
             let s = s.to_ascii_lowercase();
             let s = s.as_str();
-            if let Some(f) = self.ops.get(s) {
-                match f.clone() {
-                    Op::Call(c) => c(self)?,
-                    Op::Num(i) => self.push(i)?,
-                    Op::Ops(ops) => {
-                        for op in ops {
-                            op.call(self)?;
-                        }
-                    }
-                }
+            if let Some((_, op)) = self.ops.iter().find(|(k, _)| *k == s) {
+                op.clone().call(self)?;
                 continue;
             }
+            // if let Some(f) = self.ops.get(s) {
+            //     match f.clone() {
+            //         Op::Call(c) => c(self)?,
+            //         Op::Num(i) => self.push(i)?,
+            //         Op::Ops(ops) => {
+            //             for op in ops {
+            //                 op.call(self)?;
+            //             }
+            //         }
+            //     }
+            //     continue;
+            // }
             if let Some(ind) = LOOKUP.iter().position(|op| *op == s) {
                 OPMAP[ind](self)?;
                 continue;
@@ -156,7 +160,11 @@ impl Forth {
             }
             if s == ":" {
                 let (w, op) = self.define(&mut iter)?;
-                self.ops.insert(w, op);
+                if let Some(ind) = self.ops.iter_mut().position(|(k, _)| *k == w) {
+                    self.ops[ind] = (w, op);
+                } else {
+                    self.ops.push((w, op));
+                }
             } else {
                 return Err(Error::UnknownWord);
             }
@@ -185,8 +193,8 @@ impl Forth {
                         ops.push(Op::Num(num));
                         continue;
                     }
-                    if let Some(f) = self.ops.get(s) {
-                        ops.push(f.clone());
+                    if let Some((_, op)) = self.ops.iter().find(|(k,_)| *k == s) {
+                        ops.push(op.clone());
                     } else {
                         return Err(Error::InvalidWord);
                     }
