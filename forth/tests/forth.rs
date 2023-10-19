@@ -305,9 +305,16 @@ fn redefining_a_built_in_operator() {
 fn can_use_different_words_with_the_same_name() {
     let mut f = Forth::new();
     assert!(f.eval(": foo 5 ;").is_ok());
+    println!("{:?}", f);
     assert!(f.eval(": bar foo ;").is_ok());
+    println!("{:?}", f);
+
     assert!(f.eval(": foo 6 ;").is_ok());
+    println!("{:?}", f);
+
     assert!(f.eval("bar foo").is_ok());
+    println!("{:?}", f);
+
     assert_eq!(vec![5, 6], f.stack());
 }
 

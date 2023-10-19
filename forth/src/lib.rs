@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use once_cell::sync::Lazy;
+
 pub type Value = i32;
 pub type Result<T> = std::result::Result<T, Error>;
 type UnitResult = Result<()>;
@@ -7,42 +9,60 @@ type UnitResult = Result<()>;
 type Fop = fn(&mut Forth) -> UnitResult;
 
 const LOOKUP: [&str; 8] = ["+", "-", "*", "/", "dup", "swap", "over", "drop"];
-static OPMAP: [Fop; 8] = [
-    Forth::add,
-    Forth::sub,
-    Forth::mul,
-    Forth::div,
-    Forth::dup,
-    Forth::swap,
-    Forth::over,
-    Forth::drop,
-];
+static OPMAP: Lazy<HashMap<&str, Fop>> = Lazy::new(|| {
+    let mut map: HashMap<&str, Fop> = HashMap::with_capacity(LOOKUP.len());
+    LOOKUP.iter().for_each(|&op| {
+        let call = match op {
+            "+" => Forth::add,
+            "-" => Forth::sub,
+            "*" => Forth::mul,
+            "/" => Forth::div,
+            "dup" => Forth::dup,
+            "swap" => Forth::swap,
+            "over" => Forth::over,
+            "drop" => Forth::drop,
+            _ => panic!("invalid operation code"),
+        };
+        map.insert(op, call);
+    });
+    map
+});
 
 #[derive(Debug, Clone)]
 enum Op {
     Call(Fop),
     Num(i32),
-    Ops(Vec<Op>),
+    Ops(Vec<Vec<Op>>),
+    Key((String, usize)),
 }
 
 impl Op {
-    fn call(&self, forth: &mut Forth) -> UnitResult {
+    fn call(&self, forth: &mut Forth, ind: usize) -> UnitResult {
         match self {
             Op::Call(call) => call(forth),
             Op::Num(num) => forth.push(*num),
             Op::Ops(ops) => {
-                for op in ops {
-                    op.call(forth)?;
+                for op in &ops[ind] {
+                    op.call(forth, ind)?;
                 }
                 Ok(())
+            }
+            Op::Key((k, i)) => {
+                if let Some(op) = forth.ops.get(k).cloned() {
+                    op.call(forth, *i)?;
+                    Ok(())
+                } else {
+                    Err(Error::InvalidWord)
+                }
             }
         }
     }
 }
 
+#[derive(Debug, Default)]
 pub struct Forth {
     pub(crate) stack: Vec<Value>,
-    ops: Vec<(String, Op)>,
+    ops: HashMap<String, Op>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -55,10 +75,7 @@ pub enum Error {
 
 impl Forth {
     pub fn new() -> Forth {
-        Self {
-            stack: Vec::<Value>::new(),
-            ops: Vec::new(),
-        }
+        Self::default()
     }
 
     pub fn stack(&self) -> &[Value] {
@@ -134,24 +151,18 @@ impl Forth {
         while let Some(s) = iter.next() {
             let s = s.to_ascii_lowercase();
             let s = s.as_str();
-            if let Some((_, op)) = self.ops.iter().find(|(k, _)| *k == s) {
-                op.clone().call(self)?;
+            if let Some(op) = self.ops.get(s).cloned() {
+                match &op {
+                    Op::Ops(ops) => {
+                        op.call(self, ops.len() - 1)?;
+                    }
+                    _ => op.call(self, 0)?,
+                }
                 continue;
             }
-            // if let Some(f) = self.ops.get(s) {
-            //     match f.clone() {
-            //         Op::Call(c) => c(self)?,
-            //         Op::Num(i) => self.push(i)?,
-            //         Op::Ops(ops) => {
-            //             for op in ops {
-            //                 op.call(self)?;
-            //             }
-            //         }
-            //     }
-            //     continue;
-            // }
-            if let Some(ind) = LOOKUP.iter().position(|op| *op == s) {
-                OPMAP[ind](self)?;
+            // ops can be rewrite, must be after self.ops
+            if let Some(f) = OPMAP.get(s) {
+                f(self)?;
                 continue;
             }
             if let Ok(num) = str::parse::<i32>(s) {
@@ -160,11 +171,7 @@ impl Forth {
             }
             if s == ":" {
                 let (w, op) = self.define(&mut iter)?;
-                if let Some(ind) = self.ops.iter_mut().position(|(k, _)| *k == w) {
-                    self.ops[ind] = (w, op);
-                } else {
-                    self.ops.push((w, op));
-                }
+                self.ops.insert(w, op);
             } else {
                 return Err(Error::UnknownWord);
             }
@@ -178,30 +185,44 @@ impl Forth {
             return Err(Error::InvalidWord);
         }
         let mut ops = vec![];
-        while let Some(s) = iter.next() {
+
+        for s in iter.by_ref() {
             let s = s.to_ascii_lowercase();
             let s = s.as_str();
+            let mut vd = vec![];
             match s {
                 // Assume the ";" is the last
-                ";" => return Ok((w.to_ascii_lowercase(), Op::Ops(ops))),
+                ";" => {
+                    if let Some(Op::Ops(v)) = self.ops.get(w) {
+                        vd.extend(v.clone());
+                    }
+                    vd.push(ops);
+                    return Ok((w.to_ascii_lowercase(), Op::Ops(vd)));
+                }
                 _ => {
-                    if let Some(ind) = LOOKUP.iter().position(|&op| op == s) {
-                        ops.push(Op::Call(OPMAP[ind]));
+                    if let Some(f) = OPMAP.get(s) {
+                        ops.push(Op::Call(*f));
                         continue;
                     }
                     if let Ok(num) = str::parse::<i32>(s) {
                         ops.push(Op::Num(num));
                         continue;
                     }
-                    if let Some((_, op)) = self.ops.iter().find(|(k,_)| *k == s) {
-                        ops.push(op.clone());
+                    if let Some(Op::Ops(v)) = self.ops.get(s) {
+                        if w == s {
+                            ops.extend(v.last().unwrap().clone());
+
+                            // ops.push(op.clone());
+                        } else {
+                            ops.push(Op::Key((s.to_string(), v.len() - 1)));
+                        }
                     } else {
                         return Err(Error::InvalidWord);
                     }
                 }
             }
         }
-        return Err(Error::InvalidWord);
+        Err(Error::InvalidWord)
     }
 }
 
@@ -211,18 +232,41 @@ mod tests {
 
     #[test]
     fn test_eval() {
-        let mut vm = Forth::new();
-        vm.eval("1 2 +").unwrap();
-        assert_eq!(vm.stack.len(), 1);
-        assert_eq!(vm.stack[0], 3);
+        let mut f = Forth::new();
+        f.eval("1 2 + dup").unwrap();
+        println!("{f:?}");
+
+        assert_eq!(f.stack.len(), 2);
+        assert_eq!(f.stack[0], 3);
     }
 
     #[test]
     fn test_define() {
         let mut forth = Forth::new();
-        forth.eval(": foo drop ;").unwrap();
-        forth.eval("1 foo").unwrap();
-        forth.eval("1 1 : baz foo ;").unwrap();
-        // assert_eq!(forth.stack.len(), 1);
+        forth.eval(": foo 5 ;").unwrap();
+        forth.eval(": baz foo ;").unwrap();
+        forth.eval(": foo 6 ;").unwrap();
+        forth.eval(": fuz foo ;").unwrap();
+        forth.eval(": foo 7 ;").unwrap();
+        forth.eval("fuz").unwrap();
+        forth.eval("baz").unwrap();
+        forth.eval("foo").unwrap();
+
+        println!("{forth:?}");
+    }
+
+    #[test]
+    fn can_define_word_that_uses_word_with_the_same_name() {
+        let mut f = Forth::new();
+        assert!(f.eval(": foo 10 ;").is_ok());
+        println!("{f:?}");
+
+        assert!(f.eval(": foo foo 1 + ;").is_ok());
+        println!("{f:?}");
+
+        assert!(f.eval("foo").is_ok());
+        println!("{f:?}");
+
+        // assert_eq!(vec![11], f.stack());
     }
 }
