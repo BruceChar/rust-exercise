@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use once_cell::sync::Lazy;
+
 pub type Value = i32;
 pub type Result<T> = std::result::Result<T, Error>;
 type UnitResult = Result<()>;
@@ -7,16 +9,24 @@ type UnitResult = Result<()>;
 type Fop = fn(&mut Forth) -> UnitResult;
 
 const LOOKUP: [&str; 8] = ["+", "-", "*", "/", "dup", "swap", "over", "drop"];
-static OPMAP: [Fop; 8] = [
-    Forth::add,
-    Forth::sub,
-    Forth::mul,
-    Forth::div,
-    Forth::dup,
-    Forth::swap,
-    Forth::over,
-    Forth::drop,
-];
+static OPMAP: Lazy<HashMap<&str, Fop>> = Lazy::new(|| {
+    let mut map: HashMap<&str, Fop> = HashMap::with_capacity(LOOKUP.len());
+    LOOKUP.iter().for_each(|&op| {
+        let call = match op {
+            "+" => Forth::add,
+            "-" => Forth::sub,
+            "*" => Forth::mul,
+            "/" => Forth::div,
+            "dup" => Forth::dup,
+            "swap" => Forth::swap,
+            "over" => Forth::over,
+            "drop" => Forth::drop,
+            _ => panic!("invalid operation code"),
+        };
+        map.insert(op, call);
+    });
+    map
+});
 
 #[derive(Debug, Clone)]
 enum Op {
@@ -146,8 +156,9 @@ impl Forth {
                 }
                 continue;
             }
-            if let Some(ind) = LOOKUP.iter().position(|op| *op == s) {
-                OPMAP[ind](self)?;
+            // ops can be rewrite, must be after self.ops
+            if let Some(f) = OPMAP.get(s) {
+                f(self)?;
                 continue;
             }
             if let Ok(num) = str::parse::<i32>(s) {
@@ -177,8 +188,8 @@ impl Forth {
                 // Assume the ";" is the last
                 ";" => return Ok((w.to_ascii_lowercase(), Op::Ops(ops))),
                 _ => {
-                    if let Some(ind) = LOOKUP.iter().position(|&op| op == s) {
-                        ops.push(Op::Call(OPMAP[ind]));
+                    if let Some(f) = OPMAP.get(s) {
+                        ops.push(Op::Call(*f));
                         continue;
                     }
                     if let Ok(num) = str::parse::<i32>(s) {
@@ -217,4 +228,5 @@ mod tests {
         forth.eval("1 1 : baz foo ;").unwrap();
         // assert_eq!(forth.stack.len(), 1);
     }
+ 
 }
