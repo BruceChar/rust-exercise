@@ -10,9 +10,5 @@ pub fn verse(n: u32) -> String {
 }
 
 pub fn sing(start: u32, end: u32) -> String {
-    let mut s = verse(start);
-    for n in (end..start).rev() {
-        s += format!("\n{}", verse(n)).as_str();
-    }
-    s
+    (end..=start).rev().map(|n| verse(n)).collect::<Vec<_>>().join("\n")
 }
