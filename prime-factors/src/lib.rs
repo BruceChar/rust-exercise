@@ -1,37 +1,19 @@
-pub fn factors(n: u64) -> Vec<u64> {
-    let mut l = (n as f64).sqrt() as u64;
-    let mut num = n;
+pub fn factors(mut n: u64) -> Vec<u64> {
     let mut factors = Vec::new();
-    while num != 1 {
-        let mut flag = true;
-        for i in 2..=l {
-            if is_prime(i) && num % i == 0 {
-                factors.push(i);
-                num /= i;
-                l = (num as f64).sqrt() as u64;
-                flag = false;
-                break;
-            }
+    let mut candidates = vec![2].into_iter().chain((3..).step_by(2).into_iter());
+    let mut c = candidates.next().unwrap();
+    let mut l = (n as f64).sqrt() as u64;
+    while n != 1 {
+        if c > l {
+            factors.push(n);
+            break;
         }
-        if flag {
-            factors.push(num);
-            num = 1;
+        while n % c == 0 {
+            factors.push(c);
+            n /= c;
+            l = (n as f64).sqrt() as u64;
         }
+        c = candidates.next().unwrap();
     }
     factors
-}
-fn is_prime(n: u64) -> bool {
-    if n == 2 {
-        return true;
-    }
-    if n % 2 == 0 {
-        return false;
-    }
-    let l = (n as f64).sqrt() as u64;
-    for i in 3..=l {
-        if n % i == 0 {
-            return false;
-        }
-    }
-    true
 }
