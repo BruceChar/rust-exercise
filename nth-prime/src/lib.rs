@@ -22,14 +22,15 @@ fn is_prime(n: u32) -> bool {
         return LOOKUP.contains(&n);
     }
     let l = (n as f64).sqrt() as u32;
-    let continued = LOOKUP.iter().filter(|&d| *d <= l).any(|&d| n % d == 0);
-    if continued {
-        return false;
-    } else {
-        if l > 30 {
-            return !(31..=l).step_by(2).any(|d| n % d == 0);
+    match LOOKUP.iter().filter(|&d| *d <= l).any(|&d| n % d == 0) {
+        // if any of the divisors are less than or equal to the square root of n, then n is not prime
+        true => false,
+        false => {
+            if l > 30 {
+                return !(31..=l).step_by(2).any(|d| n % d == 0);
+            }
+            true
         }
-        return true;
     }
 }
 
