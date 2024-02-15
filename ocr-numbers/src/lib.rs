@@ -50,7 +50,7 @@ fn digits() -> [Digit; 10] {
         Digit::from(" _ |_| _|   "),
     ]
 }
-pub fn convert(input: &str) -> Result<String, Error> {
+pub fn convert1(input: &str) -> Result<String, Error> {
     let ocr: Vec<Vec<char>> = input
         .split("\n")
         .to_owned()
@@ -84,6 +84,37 @@ pub fn convert(input: &str) -> Result<String, Error> {
         }
     }
     Ok(res)
+}
+
+use std::collections::HashMap;
+
+pub fn convert(input: &str) -> Result<String, Error> {
+    let rows = input.lines().collect::<Vec<&str>>();
+    if rows.len() % 4 != 0 {
+        return Err(Error::InvalidRowCount(rows.len()))
+    } else if rows.iter().any(|row| row.len() % 3 != 0) {
+        return Err(Error::InvalidColumnCount(rows[0].len()))
+    }
+
+    let letters = vec![
+        (" _ | ||_|   ", "0"), ("     |  |   ", "1"), (" _  _||_    ", "2"),
+        (" _  _| _|   ", "3"), ("   |_|  |   ", "4"), (" _ |_  _|   ", "5"),
+        (" _ |_ |_|   ", "6"), (" _   |  |   ", "7"), (" _ |_||_|   ", "8"), (" _ |_| _|   ", "9")
+    ].iter().cloned().collect::<HashMap<&str, &str>>();
+
+    let mut result = String::new();
+    for letter_row in rows.chunks(4) {
+        // println!("letter row: {:?}", letter_row);
+        for col in (0..rows[0].len()).step_by(3) {
+            let letter: String = letter_row.iter().flat_map(|row| row[col..col + 3].chars()).collect();
+            // println!("letter: {}", letter);
+            result += letters.get(letter.as_str()).unwrap_or(&"?");
+        }
+        result.push(',');
+    }
+    result.pop();
+
+    Ok(result)
 }
 
 
