@@ -202,16 +202,33 @@ impl<'a, T: Copy + PartialEq> Reactor<'a, T> {
         }
         cell.value = new_value;
         // propagate update
-        if let Some(sets) = self.listeners.get(&CellId::Input(id)) {
-            for id in sets {
-                let c: &ComputeCell<_> = self.computes.get(id).unwrap();
-                let args = self.dep_value(*id);
-                let v = c.compute(&args);
-                if v != c.value {
-                    c.cbs.iter().for_each(|cb| self.callbacks.get_mut(&cb).unwrap()(v));
-                }
-            }
+        if let None = self.listeners.get(&CellId::Input(id)) {
+            return true;
         }
+        let listeners = self.listeners.get(&CellId::Input(id)).unwrap();
+        for id in listeners.clone() {
+            let c: &ComputeCell<_> = self.computes.get(&id).unwrap();
+            let cbs = c.cbs.clone();
+            let origin = c.value;
+            let v = self.compute(id);
+            if Some(origin) != v {
+                cbs.iter().for_each(|cb| self.callbacks.get_mut(&cb).unwrap()(v.unwrap()));
+            }
+            
+        }
+        // if let Some(sets) = self.listeners.get(&CellId::Input(id)) {
+        //     for id in sets {
+        //         let c: &ComputeCell<_> = self.computes.get(id).unwrap();
+        //         let args = self.dep_value(*id);
+        //         let v = c.compute(&args);
+        //         self.compute(*id);
+
+        //         // run callbacks
+        //         if v != c.value {
+        //             c.cbs.iter().for_each(|cb| self.callbacks.get_mut(&cb).unwrap()(v));
+        //         }
+        //     }
+        // }
         true
     }
 
@@ -223,14 +240,22 @@ impl<'a, T: Copy + PartialEq> Reactor<'a, T> {
             .collect::<Vec<_>>()
     }
 
-    pub fn compute(&mut self, id: ComputeCellId) -> bool {
+    pub fn compute(&mut self, id: ComputeCellId) -> Option<T> {
         if let None = self.computes.get(&id) {
-            return false;
+            return None;
         }
         let args = self.dep_value(id);
-        let cell = self.computes.get_mut(&id).unwrap();
-        cell.value = cell.compute(&args);
-        true
+        let c: &mut ComputeCell<T> = self.computes.get_mut(&id).unwrap();
+        let origin = c.value;
+        let value = c.compute(&args);
+        c.value = value;
+        if value != origin {
+            let listeners = self.listeners.get(&CellId::Compute(id));
+            if let Some(sets) = listeners {
+                sets.clone().iter().for_each(|id| {self.compute(*id);});
+            }
+        }
+        Some(value)
     }
 
     // Adds a callback to the specified compute cell.
