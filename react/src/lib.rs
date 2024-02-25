@@ -40,16 +40,11 @@ pub struct ComputeCellId(u64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct CallbackId(u64);
 
-struct InputCell<T> {
-    value: T,
-    listeners: HashSet<ComputeCellId>,
-}
-
 struct ComputeCell<'a, T> {
     value: T,
     deps: Vec<CellId>,
     f: Box<dyn Fn(&[T]) -> T + 'a>,
-    cbs: HashSet<CallbackId>,
+    cbs: HashSet<CallbackId>,//  Box<dyn FnMut(T) + 'a>>,
 }
 
 impl<'a, T: Copy + PartialEq> ComputeCell<'a, T> {
@@ -81,7 +76,7 @@ pub enum ComputeError {
 pub struct Reactor<'a, T> {
     // Just so that the compiler doesn't complain about an unused type parameter.
     // You probably want to delete this field.
-    inputs: HashMap<InputCellId, InputCell<T>>,
+    inputs: HashMap<InputCellId, T>,
     computes: HashMap<ComputeCellId, ComputeCell<'a, T>>,
     listeners: HashMap<CellId, HashSet<ComputeCellId>>,
     callbacks: HashMap<CallbackId, Box<dyn FnMut(T) + 'a>>,
@@ -103,10 +98,7 @@ impl<'a, T: Copy + PartialEq> Reactor<'a, T> {
         let input_id = input_id();
         self.inputs.insert(
             input_id,
-            InputCell {
-                value: initial,
-                listeners: HashSet::new(),
-            },
+            initial,
         );
         input_id
     }
@@ -124,7 +116,7 @@ impl<'a, T: Copy + PartialEq> Reactor<'a, T> {
     fn args(&self, deps: &[CellId]) -> Vec<T> {
         deps.iter()
             .map(|id| match id {
-                CellId::Input(id) => self.inputs[id].value,
+                CellId::Input(id) => self.inputs[id],
                 CellId::Compute(id) => self.computes[id].value,
             })
             .collect()
@@ -165,7 +157,6 @@ impl<'a, T: Copy + PartialEq> Reactor<'a, T> {
         for id in dependencies {
             let e = self.listeners.entry(*id).or_insert_with(HashSet::new);
             e.insert(compute_id);
-            // self.listeners.insert(*id, HashSet::from([compute_id]));
         }
         Ok(compute_id)
     }
@@ -179,7 +170,7 @@ impl<'a, T: Copy + PartialEq> Reactor<'a, T> {
     // We chose not to cover this here, since this exercise is probably enough work as-is.
     pub fn value(&self, id: CellId) -> Option<T> {
         match id {
-            CellId::Input(id) => self.inputs.get(&id).map(|i| i.value),
+            CellId::Input(id) => self.inputs.get(&id).map(|&i| i),
             CellId::Compute(id) => self.computes.get(&id).map(|c| c.value),
         }
     }
@@ -196,11 +187,11 @@ impl<'a, T: Copy + PartialEq> Reactor<'a, T> {
         if let None = self.inputs.get(&id) {
             return false;
         }
-        let cell = self.inputs.get_mut(&id).unwrap();
-        if cell.value == new_value {
+        let origin = self.inputs.get_mut(&id).unwrap();
+        if *origin == new_value {
             return true;
         }
-        cell.value = new_value;
+        *origin = new_value;
         // propagate update
         if let None = self.listeners.get(&CellId::Input(id)) {
             return true;
@@ -210,25 +201,12 @@ impl<'a, T: Copy + PartialEq> Reactor<'a, T> {
             let c: &ComputeCell<_> = self.computes.get(&id).unwrap();
             let cbs = c.cbs.clone();
             let origin = c.value;
-            let v = self.compute(id);
+
+            let v = self.compute(id, &mut HashMap::new());
             if Some(origin) != v {
                 cbs.iter().for_each(|cb| self.callbacks.get_mut(&cb).unwrap()(v.unwrap()));
             }
-            
         }
-        // if let Some(sets) = self.listeners.get(&CellId::Input(id)) {
-        //     for id in sets {
-        //         let c: &ComputeCell<_> = self.computes.get(id).unwrap();
-        //         let args = self.dep_value(*id);
-        //         let v = c.compute(&args);
-        //         self.compute(*id);
-
-        //         // run callbacks
-        //         if v != c.value {
-        //             c.cbs.iter().for_each(|cb| self.callbacks.get_mut(&cb).unwrap()(v));
-        //         }
-        //     }
-        // }
         true
     }
 
@@ -240,7 +218,7 @@ impl<'a, T: Copy + PartialEq> Reactor<'a, T> {
             .collect::<Vec<_>>()
     }
 
-    pub fn compute(&mut self, id: ComputeCellId) -> Option<T> {
+    pub fn compute(&mut self, id: ComputeCellId, callbacks: &mut HashMap<CallbackId, Box<dyn FnMut(T) + 'a>>) -> Option<T> {
         if let None = self.computes.get(&id) {
             return None;
         }
@@ -248,12 +226,17 @@ impl<'a, T: Copy + PartialEq> Reactor<'a, T> {
         let c: &mut ComputeCell<T> = self.computes.get_mut(&id).unwrap();
         let origin = c.value;
         let value = c.compute(&args);
+        let cbs = c.cbs.clone();
+
         c.value = value;
         if value != origin {
             let listeners = self.listeners.get(&CellId::Compute(id));
             if let Some(sets) = listeners {
-                sets.clone().iter().for_each(|id| {self.compute(*id);});
+                sets.clone().iter().for_each(|id| {self.compute(*id, callbacks);});
             }
+
+            // callbacks
+            cbs.iter().for_each(|cb| self.callbacks.get_mut(&cb).unwrap()(value));
         }
         Some(value)
     }
